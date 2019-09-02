@@ -1,8 +1,8 @@
 {
-  "name": "klesun-node-tools",
+  "name": "enko-fundamentals",
   "author": {
-    "name": "Artur Klesun",
-    "email": "arturklesun@gmail.com"
+    "name": "Alexander Golotenko",
+    "email": "alexandergolotenko@gmail.com"
   },
   "bundleDependencies": false,
   "dependencies": {
@@ -16,7 +16,7 @@
   "main": "./src/index.js",
   "repository": {
     "type": "git",
-    "url": "ssh://git@github.com:klesun-misc/klesun-node-tools.git"
+    "url": "ssh://git@github.com:golotenko/enko-fundamentals.git"
   },
   "version": "0.0.1"
 }
