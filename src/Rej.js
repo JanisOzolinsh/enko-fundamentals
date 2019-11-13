@@ -4,13 +4,16 @@
 // errors to distinct them programmatically
 // (to decide whether or not to write it to Diag, for example)
 
-let toReject = (httpStatusCode, isAlwaysOk = false) => {
+let toReject = (httpStatusCode, okByDefault = false) => {
 	/**
 	 * @param {{passToClient: boolean, isOk: boolean, anythingElse: *}} data
 	 */
 	let makeExc = (msg, data = undefined) => {
 		let exc;
-		let isOk = isAlwaysOk || (data || {}).isOk;
+		let isOk = (data || {}).isOk;
+		if (isOk === undefined) {
+			isOk = okByDefault;
+		}
 		if (!isOk) {
 			exc = new Error(msg);
 		} else {
@@ -50,6 +53,8 @@ let isOk = true;
 let classes = {
 	// non-error responses
 	NoContent: toReject(204, isOk),
+	ResetContent: toReject(205, isOk),
+	PartialContent: toReject(206, isOk),
 
 	// user errors
 	BadRequest: toReject(400),

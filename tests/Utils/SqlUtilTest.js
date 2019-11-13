@@ -121,7 +121,7 @@ class SqlUtilTest extends require('../../src/Transpiled/Lib/TestCase.js') {
 				"sql": [
 					"SELECT * FROM terminal_command_log",
 					"",
-					"WHERE `session_id` = ? AND MAX(id) > 13 AND `dt` < ?",
+					"WHERE `session_id` = ? AND (MAX(id) > 13) AND `dt` < ?",
 					"ORDER BY `id` DESC",
 				].join("\n"),
 				"placedValues": [773, "2019-05-17"]
@@ -146,11 +146,72 @@ class SqlUtilTest extends require('../../src/Transpiled/Lib/TestCase.js') {
 				sql: [
 					'SELECT * FROM terminal_command_log',
 					'',
-					'WHERE `area` = ? AND `session_id` = ? AND `type` IN (?, ?, ?)',
-					'   OR `area` = ? AND `session_id` = ? AND `is_mr` = ?',
+					'WHERE `area` = ? AND `session_id` = ? AND (`type` IN (?, ?, ?) OR `is_mr` = ?)',
 					'ORDER BY `id` DESC',
 				].join('\n'),
-				placedValues: ['C', 4326435, 'redisplayPnr', 'itinerary', 'storedPricing', 'C', 4326435, true]
+				placedValues: ['C', 4326435, 'redisplayPnr', 'itinerary', 'storedPricing', true]
+			}
+		});
+
+		testCases.push({
+			title: 'whereTree example',
+			input: {
+				table: 'terminal_command_log',
+				where: [
+					['area', '=', 'B'],
+					['is_mr', '=', false],
+					['OR', [
+						['type', 'IS', null],
+						['type', 'NOT IN', ['moveRest', 'openPnr']],
+					]],
+				],
+			},
+			output: {
+				sql: [
+					'SELECT * FROM terminal_command_log',
+					'',
+					'WHERE `area` = ? AND `is_mr` = ? AND (`type` IS ? OR `type` NOT IN (?, ?))',
+				].join('\n'),
+				placedValues: ['B', false, null, 'moveRest', 'openPnr'],
+			},
+		});
+
+		testCases.push({
+			title: 'should add braces in each `where` entry in case user inputs raw SQL in them',
+			input: {
+				table: 'rules',
+				fields: ['rules.*'],
+				join: [
+					{type: 'left', table: 'rulesCompanies', as: 'rulesCompanies', on: [['rulesCompanies.ruleId', '=', 'rules.id']]},
+					{type: 'left', table: 'rulesTeams', as: 'rulesTeams', on: [['rulesTeams.ruleId', '=', 'rules.id']]},
+					{type: 'left', table: 'rulesGds', as: 'rulesGds', on: [['rulesGds.ruleId', '=', 'rules.id']]},
+					{type: 'left', table: 'rulesPcc', as: 'rulesPcc', on: [['rulesPcc.ruleId', '=', 'rules.id']]},
+					{type: 'left', table: 'rulesAirlines', as: 'rulesAirlines', on: [['rulesAirlines.ruleId', '=', 'rules.id']]},
+					{type: 'left', table: 'rulesItineraryAirlines', as: 'rulesItineraryAirlines', on: [['rulesItineraryAirlines.ruleId', '=', 'rules.id']]},
+					{type: 'left', table: 'rulesFareTypes', as: 'rulesFareTypes', on: [['rulesFareTypes.ruleId', '=', 'rules.id']]},
+				],
+				where: [
+					["`applyRulesTo` = 'both' OR `applyRulesTo` = 'agents' OR `applyRulesTo` IS NULL OR `applyRulesTo` = ''"],
+				],
+				whereOr: [
+					[['linkType', '=', 'token'], ['token', '=', 'qwerty123']],
+					[['linkType', '=', 'parentId'], ['parentId', '=', 12345]],
+				],
+			},
+			output: {
+				sql: [
+					"SELECT rules.* FROM rules",
+					" left JOIN rulesCompanies AS rulesCompanies ON rulesCompanies.ruleId = rules.id",
+					" left JOIN rulesTeams AS rulesTeams ON rulesTeams.ruleId = rules.id",
+					" left JOIN rulesGds AS rulesGds ON rulesGds.ruleId = rules.id",
+					" left JOIN rulesPcc AS rulesPcc ON rulesPcc.ruleId = rules.id",
+					" left JOIN rulesAirlines AS rulesAirlines ON rulesAirlines.ruleId = rules.id",
+					" left JOIN rulesItineraryAirlines AS rulesItineraryAirlines ON rulesItineraryAirlines.ruleId = rules.id",
+					" left JOIN rulesFareTypes AS rulesFareTypes ON rulesFareTypes.ruleId = rules.id",
+					"WHERE (`applyRulesTo` = 'both' OR `applyRulesTo` = 'agents' OR `applyRulesTo` IS NULL OR `applyRulesTo` = '') "
+					+ "AND ((`linkType` = ? AND `token` = ?) OR (`linkType` = ? AND `parentId` = ?))",
+				].join("\n"),
+				placedValues: ['token', 'qwerty123', 'parentId', 12345]
 			}
 		});
 
@@ -172,6 +233,53 @@ class SqlUtilTest extends require('../../src/Transpiled/Lib/TestCase.js') {
 					"AND `responseTimestamp` < ?",
 				].join("\n"),
 				"placedValues": [235847561]
+			}
+		});
+
+		return testCases.map(c => [c]);
+	}
+
+	provide_makeInsertQuery() {
+		let testCases = [];
+
+		testCases.push({
+			title: 'insert example',
+			input: {
+				table: 'Contracts',
+				rows: [{
+					name: 'MNL to JFK best deal evar',
+					data: '{"airline":"UA","price":"350.00"}',
+				}],
+			},
+			output: {
+				sql: [
+					'INSERT',
+					'INTO Contracts (name, data)',
+					'VALUES (?, ?)',
+					'ON DUPLICATE KEY UPDATE name = VALUES(name), data = VALUES(data)',
+				].join('\n'),
+				placedValues: ['MNL to JFK best deal evar', '{"airline":"UA","price":"350.00"}'],
+			}
+		});
+
+		testCases.push({
+			title: 'insert example without update',
+			input: {
+				table: 'Contracts',
+				newOnly: true,
+				rows: [{
+					name: 'MNL to JFK best deal evar',
+					data: '{"airline":"UA","price":"350.00"}',
+				}],
+			},
+			output: {
+				sql: [
+					'INSERT',
+					'INTO Contracts (name, data)',
+					'VALUES (?, ?)',
+					'',
+				].join('\n'),
+				placedValues: ['MNL to JFK best deal evar', '{"airline":"UA","price":"350.00"}'],
 			}
 		});
 
@@ -285,6 +393,11 @@ class SqlUtilTest extends require('../../src/Transpiled/Lib/TestCase.js') {
 		this.assertArrayElementsSubset(output, actual);
 	}
 
+	test_makeInsertQuery({input, output}) {
+		let actual = SqlUtil.makeInsertQuery(input);
+		this.assertArrayElementsSubset(output, actual);
+	}
+
 	test_selectFromArray({input, output}) {
 		let actual = SqlUtil.selectFromArray(input.params, input.allRows);
 		this.assertArrayElementsSubset(output, actual);
@@ -294,6 +407,7 @@ class SqlUtilTest extends require('../../src/Transpiled/Lib/TestCase.js') {
 		return [
 			[this.provide_makeSelectQuery, this.test_makeSelectQuery],
 			[this.provide_makeDeleteQuery, this.test_makeDeleteQuery],
+			[this.provide_makeInsertQuery, this.test_makeInsertQuery],
 			[this.provide_selectFromArray, this.test_selectFromArray],
 		];
 	}
