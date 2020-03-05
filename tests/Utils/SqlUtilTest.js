@@ -176,6 +176,27 @@ class SqlUtilTest extends require('../../src/Transpiled/Lib/TestCase.js') {
 			},
 		});
 
+		const where = [
+			['area', '=', 'B'],
+			['is_mr', '=', false],
+			['OR', [
+				['type', 'IS', null],
+				['type', 'NOT IN', ['moveRest', 'openPnr']],
+			]],
+		];
+		where[2][1].push(['AND', where]);
+
+		testCases.push({
+			title: 'whereTree circular references',
+			input: {
+				table: 'terminal_command_log',
+				where: where,
+			},
+			output: {
+				error: 'Error: Circular references in SQL condition tree',
+			},
+		});
+
 		testCases.push({
 			title: 'should add braces in each `where` entry in case user inputs raw SQL in them',
 			input: {
@@ -215,6 +236,33 @@ class SqlUtilTest extends require('../../src/Transpiled/Lib/TestCase.js') {
 			}
 		});
 
+		testCases.push({
+			title: 'GROUP BY example',
+			"input": {
+				table: 'Locations',
+				whereOr: [
+					[
+						['type', '=', 'country'],
+						['value', '=', 'US'],
+					],
+					[
+						['type', '=', 'city'],
+						['value', '=', 'MOW'],
+					],
+				],
+				groupBy: ['type', 'value'],
+			},
+			"output": {
+				"sql": [
+					"SELECT * FROM Locations",
+					"",
+					"WHERE (`type` = ? AND `value` = ?) OR (`type` = ? AND `value` = ?)",
+					"GROUP BY `type`, `value`",
+				].join("\n"),
+				"placedValues": ['country', 'US', 'city', 'MOW'],
+			}
+		});
+
 		return testCases.map(c => [c]);
 	}
 
@@ -229,10 +277,57 @@ class SqlUtilTest extends require('../../src/Transpiled/Lib/TestCase.js') {
 			"output": {
 				"sql": [
 					"DELETE FROM cmd_rs_log",
-					"WHERE TRUE",
-					"AND `responseTimestamp` < ?",
+					"WHERE `responseTimestamp` < ?",
 				].join("\n"),
 				"placedValues": [235847561]
+			}
+		});
+
+		testCases.push({
+			title: 'boolean tree example',
+			"input": {
+				table: 'Locations',
+				where: [['OR', [
+					['AND', [
+						['type', '=', 'country'],
+						['value', '=', 'US'],
+					]],
+					['AND', [
+						['type', '=', 'city'],
+						['value', '=', 'MOW'],
+					]],
+				]]],
+			},
+			"output": {
+				"sql": [
+					"DELETE FROM Locations",
+					"WHERE (`type` = ? AND `value` = ?) OR (`type` = ? AND `value` = ?)",
+				].join("\n"),
+				"placedValues": ['country', 'US', 'city', 'MOW'],
+			}
+		});
+
+		testCases.push({
+			title: 'boolean tree example',
+			"input": {
+				table: 'Locations',
+				whereOr: [
+					[
+						['type', '=', 'country'],
+						['value', '=', 'US'],
+					],
+					[
+						['type', '=', 'city'],
+						['value', '=', 'MOW'],
+					],
+				],
+			},
+			"output": {
+				"sql": [
+					"DELETE FROM Locations",
+					"WHERE (`type` = ? AND `value` = ?) OR (`type` = ? AND `value` = ?)",
+				].join("\n"),
+				"placedValues": ['country', 'US', 'city', 'MOW'],
 			}
 		});
 
@@ -266,7 +361,7 @@ class SqlUtilTest extends require('../../src/Transpiled/Lib/TestCase.js') {
 			title: 'insert example without update',
 			input: {
 				table: 'Contracts',
-				newOnly: true,
+				insertType: 'insertNew',
 				rows: [{
 					name: 'MNL to JFK best deal evar',
 					data: '{"airline":"UA","price":"350.00"}',
@@ -275,6 +370,27 @@ class SqlUtilTest extends require('../../src/Transpiled/Lib/TestCase.js') {
 			output: {
 				sql: [
 					'INSERT',
+					'INTO Contracts (name, data)',
+					'VALUES (?, ?)',
+					'',
+				].join('\n'),
+				placedValues: ['MNL to JFK best deal evar', '{"airline":"UA","price":"350.00"}'],
+			}
+		});
+
+		testCases.push({
+			title: 'replace example',
+			input: {
+				table: 'Contracts',
+				insertType: 'replace',
+				rows: [{
+					name: 'MNL to JFK best deal evar',
+					data: '{"airline":"UA","price":"350.00"}',
+				}],
+			},
+			output: {
+				sql: [
+					'REPLACE',
 					'INTO Contracts (name, data)',
 					'VALUES (?, ?)',
 					'',
@@ -380,27 +496,68 @@ class SqlUtilTest extends require('../../src/Transpiled/Lib/TestCase.js') {
 			],
 		});
 
+		testCases.push({
+			title: 'example with GROUP BY (...)',
+			input: {
+				params: {
+					table: 'terminal_command_log',
+					where: [
+						['type', 'IN', ['priceItinerary', 'redisplayPnr', 'changeArea', 'itinerary']],
+					],
+					groupBy: ['type'],
+					orderBy: 'id DESC',
+				},
+				allRows: [
+					{session_id: 4326435, id: 1, type: 'priceItinerary', is_mr: false, area: 'C'},
+					{session_id: 1832814, id: 2, type: 'priceItinerary', is_mr: true, area: 'C'},
+					{session_id: 4326435, id: 3, type: 'priceItinerary', is_mr: true, area: 'C'},
+					{session_id: 4326435, id: 4, type: 'storedPricing', is_mr: false, area: 'C'},
+					{session_id: 4326435, id: 5, type: 'changeArea', is_mr: false, area: 'C'},
+					{session_id: 4326435, id: 6, type: 'redisplayPnr', is_mr: false, area: 'B'},
+					{session_id: 4326435, id: 7, type: 'itinerary', is_mr: false, area: 'B'},
+					{session_id: 4326435, id: 8, type: 'changeArea', is_mr: false, area: 'B'},
+					{session_id: 4326435, id: 9, type: 'redisplayPnr', is_mr: false, area: 'C'},
+					{session_id: 1832814, id: 10, type: 'redisplayPnr', is_mr: true, area: 'C'},
+				],
+			},
+			output: [
+				{session_id: 4326435, id: 7, type: 'itinerary', is_mr: false, area: 'B'},
+				{session_id: 4326435, id: 6, type: 'redisplayPnr', is_mr: false, area: 'B'},
+				{session_id: 4326435, id: 5, type: 'changeArea', is_mr: false, area: 'C'},
+				{session_id: 4326435, id: 1, type: 'priceItinerary', is_mr: false, area: 'C'},
+			],
+		});
+
 		return testCases.map(c => [c]);
 	}
 
 	test_makeSelectQuery({input, output}) {
-		let actual = SqlUtil.makeSelectQuery(input);
-		this.assertArrayElementsSubset(output, actual);
+		let actual;
+		try {
+			actual = SqlUtil.makeSelectQuery(input);
+		} catch (exc) {
+			if (output && output.error) {
+				actual = {error: exc + ''};
+			} else {
+				throw exc;
+			}
+		}
+		this.assertSubTree(output, actual);
 	}
 
 	test_makeDeleteQuery({input, output}) {
 		let actual = SqlUtil.makeDeleteQuery(input);
-		this.assertArrayElementsSubset(output, actual);
+		this.assertSubTree(output, actual);
 	}
 
 	test_makeInsertQuery({input, output}) {
 		let actual = SqlUtil.makeInsertQuery(input);
-		this.assertArrayElementsSubset(output, actual);
+		this.assertSubTree(output, actual);
 	}
 
 	test_selectFromArray({input, output}) {
 		let actual = SqlUtil.selectFromArray(input.params, input.allRows);
-		this.assertArrayElementsSubset(output, actual);
+		this.assertSubTree(output, actual);
 	}
 
 	getTestMapping() {

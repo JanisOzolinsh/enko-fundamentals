@@ -77,7 +77,7 @@ const makeConds = (dataAnds) => {
 const normalizeSelectParams = (params) => {
 	let {
 		table, as, fields = [], join = [], where = [], whereOr = [],
-		orderBy = [], limit = null, skip = null,
+		orderBy = [], groupBy = [], limit = null, skip = null,
 	} = params;
 
 	if (whereOr.length > 0 && whereOr[0].length > 0) {
@@ -98,7 +98,7 @@ const normalizeSelectParams = (params) => {
 
 	return {
 		table, as, fields, join, where,
-		orderBy, limit, skip,
+		orderBy, groupBy, limit, skip,
 	};
 };
 
@@ -114,7 +114,7 @@ const normalizeSelectParams = (params) => {
 exports.makeSelectQuery = (params) => {
 	let {
 		table, as, fields, join, where,
-		orderBy, limit, skip,
+		orderBy, groupBy, limit, skip,
 	} = normalizeSelectParams(params);
 
 	let makeFields = fieldList => fieldList.length > 0 ? fieldList.join(',') : '*';
@@ -136,6 +136,9 @@ exports.makeSelectQuery = (params) => {
 			sqlParts.push('WHERE ' + sql);
 		}
 	}
+	if (groupBy.length > 0) {
+		sqlParts.push('GROUP BY ' + groupBy.map(escCol).join(', '));
+	}
 	if (orderBy.length > 0) {
 		sqlParts.push(`ORDER BY ` + orderBy
 			.map(([expr, direction]) => escCol(expr) + ' ' + (direction || ''))
@@ -149,7 +152,7 @@ exports.makeSelectQuery = (params) => {
 	return {sql, placedValues: allPlacedValues};
 };
 
-exports.makeInsertQuery = ({table, rows, newOnly = false}) => {
+exports.makeInsertQuery = ({table, rows, insertType = 'insertOrUpdate', syntax = 'mysql'}) => {
 	if (!rows.length) {
 		let msg = 'Can not create INSERT query: supplied rows are empty';
 		throw Rej.BadRequest.makeExc(msg);
@@ -182,10 +185,10 @@ exports.makeInsertQuery = ({table, rows, newOnly = false}) => {
 	let $allPlaces = new Array(rows.length).fill($rowPlaces).join(', ');
 
 	let sql = [
-		'INSERT',
+		insertType === 'replace' ? 'REPLACE' : 'INSERT',
 		'INTO ' + table + ' (' + $colNames.join(', ') + ')',
 		'VALUES ' + $allPlaces,
-		newOnly ? '' :
+		insertType !== 'insertOrUpdate' ? '' :
 			'ON DUPLICATE KEY UPDATE ' + $colNames
 				.map(($colName) => $colName + ' = VALUES(' + $colName + ')')
 				.join(', '),
@@ -214,19 +217,16 @@ exports.makeUpdateQuery = ({table, set, where}) => {
 	return {sql, placedValues};
 };
 
-exports.makeDeleteQuery = ({table, where = []}) => {
-	let makeConds = ands => ands.map(([col, operator]) =>
-		'`' + col + '` ' + operator + ' ?').join(' AND ');
-	let sql = [
-		`DELETE FROM ${table}`,
-		`WHERE TRUE`,
-		where.length === 0 ? '' :
-			'AND ' + makeConds(where),
-	].join('\n');
-
-	let placedValues = where.map(([col, op, val]) => val);
-
-	return {sql, placedValues};
+exports.makeDeleteQuery = (params) => {
+	const {table, where = []} = normalizeSelectParams(params);
+	const sqlParts = [`DELETE FROM ${table}`];
+	const allPlacedValues = [];
+	const {sql, placedValues} = makeConds(where);
+	if (sql) {
+		allPlacedValues.push(...placedValues);
+		sqlParts.push('WHERE ' + sql);
+	}
+	return {sql: sqlParts.join('\n'), placedValues: allPlacedValues};
 };
 
 let isStrLike = (str, pattern) => {
@@ -314,7 +314,7 @@ const matchesCondition = (row, condTuple, level = 0) => {
 exports.selectFromArray = (params, allRows) => {
 	let {
 		table, as, fields, join, where,
-		orderBy, limit, skip,
+		orderBy, groupBy, limit, skip,
 	} = normalizeSelectParams(params);
 
 	if (join.length > 0) {
@@ -326,8 +326,19 @@ exports.selectFromArray = (params, allRows) => {
 	// note that it does not currently handle custom
 	// expressions or joins anyhow for simplicity sake
 
+	const occurrences = new Set();
 	return allRows
 		.filter(row => matchesCondition(row, ['AND', where]))
+		.filter(row => {
+			if (groupBy.length > 0) {
+				const occurrence = JSON.stringify(groupBy.map(f => row[f]));
+				if (occurrences.has(occurrence)) {
+					return false;
+				}
+				occurrences.add(occurrence);
+			}
+			return true;
+		})
 		.sort((aRow, bRow) => {
 			for (let [field, direction = 'ASC'] of orderBy) {
 				if (!(field in aRow) || !(field in bRow)) {
